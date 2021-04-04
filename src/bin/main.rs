@@ -1,18 +1,18 @@
-extern crate ribble;
+extern crate monkey;
 
-use ribble::evaluator::builtins::new_builtins;
-use ribble::evaluator::env::Env;
-use ribble::evaluator::object::Object;
-use ribble::lexer::Lexer;
-use ribble::parser::Parser;
-use ribble::evaluator::Evaluator;
+use monkey::evaluator::builtins::new_builtins;
+use monkey::evaluator::env::Env;
+use monkey::evaluator::object::Object;
+use monkey::lexer::Lexer;
+use monkey::parser::Parser;
+use monkey::evaluator::Evaluator;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 fn main() {
-  println!("Ribble REPL 0.1.0");
+  println!("monkey REPL 0.1.0");
 
   let mut rl = Editor::<()>::new();
   let mut env = Env::from(new_builtins());

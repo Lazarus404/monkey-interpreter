@@ -128,7 +128,7 @@ impl Evaluator {
         }
       }
       Expr::Function { params, body } => Some(Object::Function(params, body, Rc::clone(&self.env))),
-      Expr::Call { function, arguments } => Some(self.eval_call_expr(function, arguments)),
+      Expr::Call { name, function, arguments } => Some(self.eval_call_expr(name, function, arguments)),
       _ => None
     }
   }
@@ -244,7 +244,17 @@ impl Evaluator {
     }
   }
 
-  fn eval_call_expr(&mut self, func: Box<Expr>, args: Vec<Expr>) -> Object {
+  fn eval_call_expr(&mut self, name: Option<String>, func: Box<Expr>, args: Vec<Expr>) -> Object {
+    match name {
+      Some(name) => {
+        if name == String::from("quote") {
+          return self.quote_expr(args[0].clone())
+        }
+        ()
+      },
+      _ => ()
+    };
+
     let args = args
       .iter()
       .map(|e| self.eval_expr(e.clone()).unwrap_or(Object::Null))
@@ -354,6 +364,10 @@ impl Evaluator {
     }
 
     Object::Hash(hash)
+  }
+
+  fn quote_expr(&mut self, expr: Expr) -> Object {
+    Object::Quote(expr)
   }
 }
 
@@ -831,6 +845,37 @@ mod tests {
           "argument to `push` must be array. got 1",
         ))),
       ),
+    ];
+
+    assert_eq(tests);
+  }
+
+  #[test]
+  fn test_quote() {
+    let tests = vec![
+      ("quote(5)", Some(
+        Object::Quote(
+          Expr::Lit(Literal::Int(5))
+        )
+      )),
+      ("quote(5 + 8)", Some(
+        Object::Quote(
+          Expr::Infix(
+            Infix::Plus,
+            Box::new(Expr::Lit(Literal::Int(5))),
+            Box::new(Expr::Lit(Literal::Int(8)))
+          )
+        )
+      )),
+      ("quote(foobar + barfoo)", Some(
+        Object::Quote(
+          Expr::Infix(
+            Infix::Plus,
+            Box::new(Expr::Ident(Identity(String::from("foobar")))),
+            Box::new(Expr::Ident(Identity(String::from("barfoo"))))
+          )
+        )
+      )),
     ];
 
     assert_eq(tests);

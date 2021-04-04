@@ -28,6 +28,7 @@ pub enum Expr {
   },
   Function { params: Vec<Identity>, body: BlockStmt },
   Call {
+    name: Option<String>,
     function: Box<Expr>,
     arguments: Vec<Expr>,
   },

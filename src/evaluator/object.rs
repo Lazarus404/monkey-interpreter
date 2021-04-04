@@ -20,6 +20,7 @@ pub enum Object {
   Null,
   ReturnValue(Box<Object>),
   Error(String),
+  Quote(Expr),
 }
 
 impl fmt::Display for Object {
@@ -65,6 +66,7 @@ impl fmt::Display for Object {
       Object::Null => write!(f, "null"),
       Object::ReturnValue(ref value) => write!(f, "{}", value),
       Object::Error(ref value) => write!(f, "{}", value),
+      Object::Quote(ref value) => write!(f, "QUOTE({:?})", value),
     }
   }
 }

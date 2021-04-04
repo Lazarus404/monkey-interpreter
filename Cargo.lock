@@ -29,6 +29,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a9f8082297d534141b30c8d39e9b1773713ab50fdbe4ff30f750d063b3bfd701"
 
 [[package]]
+name = "monkey"
+version = "0.1.0"
+dependencies = [
+ "rustyline",
+]
+
+[[package]]
 name = "nix"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -36,13 +43,6 @@ checksum = "bfb3ddedaa14746434a02041940495bf11325c22f6d36125d3bdd56090d50a79"
 dependencies = [
  "bitflags",
  "libc",
-]
-
-[[package]]
-name = "ribble"
-version = "0.1.0"
-dependencies = [
- "rustyline",
 ]
 
 [[package]]
