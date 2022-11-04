@@ -244,6 +244,7 @@ impl<'a> Parser<'a> {
             Token::Bang | Token::Minus | Token::Plus => self.parse_prefix_expr(),
             Token::LParen => self.parse_grouped_expr(),
             Token::If => self.parse_if_expr(),
+            Token::Macro => self.parse_macro_expr(),
             Token::Function => self.parse_func_expr(),
             _ => {
                 self.error_no_prefix_parse();
@@ -419,6 +420,26 @@ impl<'a> Parser<'a> {
             consequence,
             alternative,
         })
+    }
+
+    fn parse_macro_expr(&mut self) -> Option<Expr> {
+        if !self.expect_peek(Token::LParen) {
+            return None;
+        }
+
+        let params = match self.parse_func_params() {
+            Some(params) => params,
+            None => return None,
+        };
+
+        if !self.expect_peek(Token::LBrace) {
+            return None;
+        }
+
+        Some(Expr::Lit(Literal::Macro(MacroLiteral {
+            params,
+            body: Box::new(self.parse_block_stmt()),
+        })))
     }
 
     fn parse_func_expr(&mut self) -> Option<Expr> {
@@ -785,6 +806,34 @@ mod tests {
         ];
 
         assert_eq(input, program);
+    }
+
+    #[test]
+    fn test_macro_literal_parse() {
+        let input = "macro(x, y) { x + y; }";
+
+        let l = Lexer::new(input);
+        let mut p = Parser::new(l);
+        let program = p.parse();
+        assert_eq!(program.len(), 1);
+
+        if let Stmt::Expr(stmt) = &program[0] {
+            if let Expr::Lit(Literal::Macro(MacroLiteral { params, body })) = &stmt {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0], Identity("x".to_string()));
+                assert_eq!(params[1], Identity("y".to_string()));
+                assert_eq!(body.len(), 1);
+                if let Stmt::Expr(body_stmt) = &body[0] {
+                    println!("{:?}", body_stmt);
+                } else {
+                    assert!(false, "macro body stmt is not ast::Expr")
+                }
+            } else {
+                assert!(false, "stmt is not ast::MacroLiteral")
+            }
+        } else {
+            assert!(false, "program[0] is not ast::Expr")
+        }
     }
 
     #[test]

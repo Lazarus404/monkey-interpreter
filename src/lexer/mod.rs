@@ -185,6 +185,7 @@ impl<'a> Lexer<'a> {
 
         match kw_or_ident {
             "fn" => Token::Function,
+            "macro" => Token::Macro,
             "let" => Token::Let,
             "true" => Token::True,
             "false" => Token::False,

@@ -21,6 +21,7 @@ pub enum Object {
     ReturnValue(Box<Object>),
     Error(String),
     Quote(Node),
+    Macro(MacroLiteral),
 }
 
 impl fmt::Display for Object {
@@ -67,6 +68,17 @@ impl fmt::Display for Object {
             Object::ReturnValue(ref value) => write!(f, "{}", value),
             Object::Error(ref value) => write!(f, "{}", value),
             Object::Quote(ref value) => write!(f, "QUOTE({:?})", value),
+            Object::Macro(ref value) => write!(
+                f,
+                "macro({}) {{{:?}}}",
+                value
+                    .params
+                    .iter()
+                    .map(|p| format!("{:?}", p))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                value.body
+            ),
         }
     }
 }

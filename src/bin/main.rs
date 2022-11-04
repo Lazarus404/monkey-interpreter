@@ -35,7 +35,9 @@ fn main() {
                 rl.add_history_entry(&line);
 
                 let mut parser = Parser::new(Lexer::new(&line));
-                let program = parser.parse();
+                let mut program = parser.parse();
+                evaluator.define_macros(&mut program);
+                let expanded = evaluator.expand_macros(program);
                 let errors = parser.errors();
 
                 if errors.len() > 0 {
@@ -45,7 +47,7 @@ fn main() {
                     continue;
                 }
 
-                if let Some(evaluated) = evaluator.eval(program) {
+                if let Some(evaluated) = evaluator.eval(expanded) {
                     println!("{}\n", evaluated);
                 }
             }

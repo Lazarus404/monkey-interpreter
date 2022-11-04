@@ -3,10 +3,16 @@ use std::fmt;
 use std::rc::Rc;
 pub type Program = BlockStmt;
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Identity(pub String);
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroLiteral {
+    pub params: Vec<Identity>,
+    pub body: Box<BlockStmt>,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Node {
     Program(Program),
     BlockStmt(BlockStmt),
@@ -14,7 +20,7 @@ pub enum Node {
     Expr(Expr),
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Stmt {
     Let(Identity, Expr),
     Return(Expr),
@@ -23,7 +29,7 @@ pub enum Stmt {
 
 pub type BlockStmt = Vec<Stmt>;
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Expr {
     Ident(Identity),
     Lit(Literal),
@@ -47,13 +53,14 @@ pub enum Expr {
     },
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Literal {
     Int(i64),
     Bool(bool),
     String(String),
     Array(Vec<Expr>),
     Hash(Vec<(Expr, Expr)>),
+    Macro(MacroLiteral),
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
@@ -68,14 +75,14 @@ pub enum Precedence {
     PIndex,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Prefix {
     PrePlus,
     PreMinus,
     Not,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Infix {
     Plus,
     Minus,
@@ -121,10 +128,8 @@ pub fn modify<P: FnMut(Node) -> Node>(target: Node, modifier: Rc<RefCell<P>>) ->
             (&mut *modifier.borrow_mut())(Node::Program(program))
         }
         Node::BlockStmt(mut node) => {
-            println!("bs 1 {:?}", node);
             for i in 0..node.len() {
                 let statement = node.swap_remove(i);
-                println!("bs 2 {:?}", statement);
                 if let Node::Expr(expr) = modify(Node::Stmt(statement), Rc::clone(&modifier)) {
                     node.insert(i, Stmt::Expr(expr));
                 }
@@ -132,7 +137,6 @@ pub fn modify<P: FnMut(Node) -> Node>(target: Node, modifier: Rc<RefCell<P>>) ->
             (&mut *modifier.borrow_mut())(Node::BlockStmt(node))
         }
         Node::Stmt(Stmt::Expr(node)) => {
-            println!("st 1 {:?}", node);
             if let Node::Expr(expr) = modify(Node::Expr(node), Rc::clone(&modifier)) {
                 (&mut *modifier.borrow_mut())(Node::Expr(expr))
             } else {
@@ -180,7 +184,6 @@ pub fn modify<P: FnMut(Node) -> Node>(target: Node, modifier: Rc<RefCell<P>>) ->
             consequence,
             alternative,
         }) => {
-            println!("if 1 {:?}", cond);
             if let Node::Expr(cond) = modify(Node::Expr(*cond), Rc::clone(&modifier)) {
                 if let Node::BlockStmt(cons) =
                     modify(Node::BlockStmt(consequence), Rc::clone(&modifier))
@@ -211,49 +214,31 @@ pub fn modify<P: FnMut(Node) -> Node>(target: Node, modifier: Rc<RefCell<P>>) ->
                 unreachable!()
             }
         }
-        Node::Expr(Expr::Function{
-          mut params,
-          body,
-        }) => {
+        Node::Expr(Expr::Function { mut params, body }) => {
             for i in 0..params.len() {
                 let identifier = params.swap_remove(i);
-                if let Node::Expr(Expr::Ident(ident)) = modify(
-                    Node::Expr(Expr::Ident(identifier)),
-                    Rc::clone(&modifier),
-                ) {
+                if let Node::Expr(Expr::Ident(ident)) =
+                    modify(Node::Expr(Expr::Ident(identifier)), Rc::clone(&modifier))
+                {
                     params.insert(i, ident);
                 }
             }
-            if let Node::BlockStmt(body) =
-                modify(Node::BlockStmt(body), Rc::clone(&modifier))
-            {
-                (&mut *modifier.borrow_mut())(Node::Expr(Expr::Function {
-                    params,
-                    body,
-                }))
+            if let Node::BlockStmt(body) = modify(Node::BlockStmt(body), Rc::clone(&modifier)) {
+                (&mut *modifier.borrow_mut())(Node::Expr(Expr::Function { params, body }))
             } else {
                 unreachable!()
             }
         }
         Node::Stmt(Stmt::Return(value)) => {
-            if let Node::Expr(return_value) =
-                modify(Node::Expr(value), Rc::clone(&modifier))
-            {
-                (&mut *modifier.borrow_mut())(Node::Stmt(Stmt::Return(
-                    return_value,
-                )))
+            if let Node::Expr(return_value) = modify(Node::Expr(value), Rc::clone(&modifier)) {
+                (&mut *modifier.borrow_mut())(Node::Stmt(Stmt::Return(return_value)))
             } else {
                 unreachable!()
             }
         }
         Node::Stmt(Stmt::Let(ident, expr)) => {
-            if let Node::Expr(value) =
-                modify(Node::Expr(expr), Rc::clone(&modifier))
-            {
-                (&mut *modifier.borrow_mut())(Node::Stmt(Stmt::Let(
-                    ident,
-                    value,
-                )))
+            if let Node::Expr(value) = modify(Node::Expr(expr), Rc::clone(&modifier)) {
+                (&mut *modifier.borrow_mut())(Node::Stmt(Stmt::Let(ident, value)))
             } else {
                 unreachable!()
             }
@@ -261,9 +246,7 @@ pub fn modify<P: FnMut(Node) -> Node>(target: Node, modifier: Rc<RefCell<P>>) ->
         Node::Expr(Expr::Lit(Literal::Array(mut node))) => {
             for i in 0..node.len() {
                 let element = node.swap_remove(i);
-                if let Node::Expr(elem) =
-                    modify(Node::Expr(element), Rc::clone(&modifier))
-                {
+                if let Node::Expr(elem) = modify(Node::Expr(element), Rc::clone(&modifier)) {
                     node.insert(i, elem);
                 }
             }
@@ -273,16 +256,12 @@ pub fn modify<P: FnMut(Node) -> Node>(target: Node, modifier: Rc<RefCell<P>>) ->
             for i in 0..node.len() {
                 let (key, value) = node.swap_remove(i);
                 if let Node::Expr(k) = modify(Node::Expr(key), Rc::clone(&modifier)) {
-                    if let Node::Expr(v) =
-                        modify(Node::Expr(value), Rc::clone(&modifier))
-                    {
+                    if let Node::Expr(v) = modify(Node::Expr(value), Rc::clone(&modifier)) {
                         node.insert(i, (k, v));
                     }
                 }
             }
-            (&mut *modifier.borrow_mut())(Node::Expr(Expr::Lit(Literal::Hash(
-                node,
-            ))))
+            (&mut *modifier.borrow_mut())(Node::Expr(Expr::Lit(Literal::Hash(node))))
         }
         _ => (&mut *modifier.borrow_mut())(target),
     }
@@ -346,44 +325,30 @@ mod tests {
                 }),
             ),
             (
-              Node::Stmt(Stmt::Return(
-                one(),
-              )),
-              Node::Stmt(Stmt::Return(
-                two(),
-              )),
+                Node::Stmt(Stmt::Return(one())),
+                Node::Stmt(Stmt::Return(two())),
             ),
             (
-              Node::Stmt(Stmt::Let(
-                Identity(String::from("value")),
-                one(),
-              )),
-              Node::Stmt(Stmt::Let(
-                Identity(String::from("value")),
-                two(),
-              )),
+                Node::Stmt(Stmt::Let(Identity(String::from("value")), one())),
+                Node::Stmt(Stmt::Let(Identity(String::from("value")), two())),
             ),
             (
-              Node::Expr(Expr::Function {
-                params: vec![],
-                body: vec![Stmt::Expr(one())],
-              }),
-              Node::Expr(Expr::Function {
-                params: vec![],
-                body: vec![Stmt::Expr(two())],
-              }),
+                Node::Expr(Expr::Function {
+                    params: vec![],
+                    body: vec![Stmt::Expr(one())],
+                }),
+                Node::Expr(Expr::Function {
+                    params: vec![],
+                    body: vec![Stmt::Expr(two())],
+                }),
             ),
             (
-              Node::Expr(Expr::Lit(Literal::Array(
-                vec![one(), one()],
-              ))),
-              Node::Expr(Expr::Lit(Literal::Array(
-                vec![two(), two()],
-              ))),
+                Node::Expr(Expr::Lit(Literal::Array(vec![one(), one()]))),
+                Node::Expr(Expr::Lit(Literal::Array(vec![two(), two()]))),
             ),
             (
-              Node::Expr(Expr::Lit(Literal::Hash( vec![(one(), one())] ))),
-              Node::Expr(Expr::Lit(Literal::Hash( vec![(two(), two())] ))),
+                Node::Expr(Expr::Lit(Literal::Hash(vec![(one(), one())]))),
+                Node::Expr(Expr::Lit(Literal::Hash(vec![(two(), two())]))),
             ),
         ];
 

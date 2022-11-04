@@ -154,6 +154,7 @@ impl Evaluator {
             Literal::String(value) => Object::String(value),
             Literal::Array(objects) => self.eval_array_literal(objects),
             Literal::Hash(pairs) => self.eval_hash_literal(pairs),
+            Literal::Macro(lit) => Object::Macro(lit),
         }
     }
 
@@ -189,7 +190,6 @@ impl Evaluator {
     }
 
     fn eval_infix_expr(&mut self, infix: Infix, left: Object, right: Object) -> Object {
-        println!("{:?}", left);
         match left {
             Object::Int(left_value) => {
                 if let Object::Int(right_value) = right {
@@ -434,7 +434,7 @@ impl Evaluator {
             Object::Int(int) => Node::Expr(Expr::Lit(Literal::Int(int))),
             Object::Bool(boolean) => Node::Expr(Expr::Lit(Literal::Bool(boolean))),
             Object::Quote(quote) => quote,
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
     }
 
@@ -452,6 +452,128 @@ impl Evaluator {
         } else {
             false
         }
+    }
+
+    pub fn define_macros(&mut self, program: &mut Program) {
+        let mut def = vec![];
+        for (i, stmt) in program.iter().enumerate() {
+            if self.is_macro_definition(stmt) {
+                self.add_macro(stmt);
+                def.push(i);
+            }
+        }
+
+        def.reverse();
+        for def_indx in def.iter() {
+            program.remove(*def_indx);
+        }
+    }
+
+    fn is_macro_definition(&mut self, node: &Stmt) -> bool {
+        if let Stmt::Let(_ident, expr) = node {
+            if let Expr::Lit(Literal::Macro(_)) = expr {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    fn add_macro(&mut self, stmt: &Stmt) {
+        if let Stmt::Let(Identity(ident), expr) = stmt {
+            if let Expr::Lit(Literal::Macro(macro_lit)) = &expr {
+                let macro_o = Object::Macro(MacroLiteral {
+                    params: macro_lit.params.clone(),
+                    body: macro_lit.body.clone(),
+                });
+                self.env.borrow_mut().set(ident.clone(), &macro_o);
+            } else {
+                unreachable!()
+            }
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn expand_macros(&mut self, program: Program) -> Program {
+        if let Node::Program(p) = modify(
+            Node::Program(program),
+            Rc::new(RefCell::new(|node: Node| -> Node {
+                if let Node::Expr(Expr::Call {
+                    name: _,
+                    function: _,
+                    arguments: _,
+                }) = &node
+                {
+                    if let Node::Expr(call) = &node {
+                        if let Some(macro_o) = self.is_macro_call(call) {
+                            let args = self.quote_args(call);
+                            for (i, Identity(param)) in macro_o.params.iter().enumerate() {
+                                self.env.borrow_mut().set(param.clone(), &args[i]);
+                            }
+                            let evaluated = self.eval(*macro_o.body);
+                            if let Some(Object::Quote(Node::Expr(quote))) = evaluated {
+                                Node::Expr(quote)
+                            } else {
+                                panic!("we only support returning AST-nodes from macros");
+                            }
+                        } else {
+                            node
+                        }
+                    } else {
+                        node
+                    }
+                } else {
+                    node
+                }
+            })),
+        ) {
+            p
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn is_macro_call(&mut self, exp: &Expr) -> Option<MacroLiteral> {
+        if let Expr::Call {
+            name: _,
+            function,
+            arguments: _,
+        } = exp
+        {
+            if let Expr::Ident(Identity(identifier)) = &**function {
+                if let Some(obj) = self.env.borrow_mut().get(identifier.clone()) {
+                    if let Object::Macro(macro_o) = obj {
+                        Some(macro_o)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn quote_args(&mut self, exp: &Expr) -> Vec<Object> {
+        let mut args = vec![];
+        if let Expr::Call {
+            name: _,
+            function: _,
+            arguments,
+        } = exp
+        {
+            for a in arguments {
+                args.push(Object::Quote(Node::Expr(a.clone())));
+            }
+        }
+        args
     }
 }
 
@@ -1037,5 +1159,97 @@ mod tests {
         ];
 
         assert_eq(tests);
+    }
+
+    #[test]
+    fn test_define_macros() {
+        let input = r#"
+        let number = 1;
+        let function = fn(x, y) { x + y; };
+        let mymacro = macro(x, y) { x + y; };
+        "#;
+
+        let env = Env::from(new_builtins());
+        let mut eval = Evaluator::new(Rc::new(RefCell::new(env)));
+        let mut program = test_parse_program(input);
+
+        eval.define_macros(&mut program);
+
+        assert_eq!(program.len(), 2);
+
+        let mut borrowed_env = eval.env.borrow_mut();
+        assert!(borrowed_env.get("number".to_string()).is_none());
+        assert!(borrowed_env.get("function".to_string()).is_none());
+
+        if let Some(obj) = borrowed_env.get("mymacro".to_string()) {
+            if let Object::Macro(macro_o) = obj {
+                assert_eq!(macro_o.params.len(), 2);
+                assert_eq!(macro_o.params[0], Identity("x".to_string()));
+                assert_eq!(macro_o.params[1], Identity("y".to_string()));
+                assert_eq!(
+                    macro_o.body,
+                    Box::new(vec![Stmt::Expr(Expr::Infix(
+                        Infix::Plus,
+                        Box::new(Expr::Ident(Identity(String::from("x")))),
+                        Box::new(Expr::Ident(Identity(String::from("y"))))
+                    ))])
+                );
+            } else {
+                assert!(false, "object is not Macro")
+            }
+        } else {
+            assert!(false, "macro not in environment.")
+        }
+    }
+
+    #[test]
+    fn test_expand_macros() {
+        let tests = [
+            (
+                r#"
+                let infixExpression = macro() { quote(1 + 2); };
+                infixExpression();
+                "#,
+                "(1 + 2)",
+            ),
+            (
+                r#"
+                let reverse = macro(a, b) { quote(unquote(b) - unquote(a)); };
+                reverse(2 + 2, 10 - 5);
+                "#,
+                "(10 - 5) - (2 + 2)",
+            ),
+            (
+                r#"
+                let unless = macro(condition, consequence, alternative) {
+                    quote(if (!(unquote(condition))){
+                        unquote(consequence);
+                    } else {
+                        unquote(alternative);
+                    })
+                };
+                unless(10 > 5, puts("not greater"), puts("greater"));
+                "#,
+                r#"if (!(10 > 5)) { puts("not greater") } else { puts("greater") }"#,
+            ),
+        ];
+
+        for (input, expected_str) in tests.iter() {
+            let expected = test_parse_program(expected_str);
+            let env = Env::from(new_builtins());
+            let mut eval = Evaluator::new(Rc::new(RefCell::new(env)));
+            let mut program = test_parse_program(input);
+            eval.define_macros(&mut program);
+
+            let expanded = eval.expand_macros(program);
+
+            assert_eq!(expanded, expected);
+        }
+    }
+
+    fn test_parse_program(input: &str) -> Program {
+        let l = Lexer::new(input);
+        let mut p = Parser::new(l);
+        p.parse()
     }
 }

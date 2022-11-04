@@ -43,6 +43,9 @@ pub enum Token {
     If,
     Else,
     Return,
+
+    // macro
+    Macro,
 }
 
 impl fmt::Display for Token {
